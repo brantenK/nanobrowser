@@ -1,6 +1,7 @@
 import { type BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 
 import { guardrails } from '@src/background/services/guardrails';
+import { jsonrepair } from 'jsonrepair';
 import { ResponseParseError } from '../agents/errors';
 
 /**
@@ -117,20 +118,45 @@ export function extractJsonFromModelOutput(content: string): Record<string, unkn
 
     // If content is wrapped in code blocks, extract just the JSON part
     if (processedContent.includes('```')) {
-      // Find the JSON content between code blocks
       const parts = processedContent.split('```');
-      processedContent = parts[1];
+      // Find the first block that looks like json, or just take the content between the first two ```
+      if (parts.length >= 3) {
+        let codeBlock = parts.find((p, i) => i % 2 !== 0 && p.trim().toLowerCase().startsWith('json')) || parts[1];
+        if (codeBlock.trim().toLowerCase().startsWith('json')) {
+          codeBlock = codeBlock.trim().substring(4);
+        }
+        processedContent = codeBlock.trim();
+      }
+    } else {
+      // Attempt to extract json from the string if no code blocks are found
+      // Find first { or [ and last } or ]
+      const firstBrace = processedContent.indexOf('{');
+      const firstBracket = processedContent.indexOf('[');
 
-      // Remove language identifier if present (e.g., 'json\n')
-      if (processedContent.startsWith('json')) {
-        processedContent = processedContent.substring(4).trim();
+      let startIdx = -1;
+      let endIdx = -1;
+
+      if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+        startIdx = firstBrace;
+        endIdx = processedContent.lastIndexOf('}');
+      } else if (firstBracket !== -1) {
+        startIdx = firstBracket;
+        endIdx = processedContent.lastIndexOf(']');
+      }
+
+      if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        processedContent = processedContent.substring(startIdx, endIdx + 1);
       }
     }
 
-    // Parse the cleaned content
-    return JSON.parse(processedContent);
+    // Parse the cleaned content, using jsonrepair if needed
+    try {
+      return JSON.parse(processedContent);
+    } catch (e) {
+      return JSON.parse(jsonrepair(processedContent));
+    }
   } catch (e) {
-    throw new ResponseParseError(`Could not manually extract JSON from model output`);
+    throw new ResponseParseError(`Could not manually extract JSON from model output: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 

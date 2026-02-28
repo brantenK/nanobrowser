@@ -18,9 +18,11 @@ class ChatLlama extends ChatOpenAI {
   }
 
   // Override the completionWithRetry method to intercept and transform the response
+  // @ts-ignore: override protected method
   async completionWithRetry(request: any, options?: any): Promise<any> {
     try {
       // Make the request using the parent's implementation
+      // @ts-ignore: calling protected method
       const response = await super.completionWithRetry(request, options);
 
       // Check if this is a Llama API response format
